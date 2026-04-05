@@ -8,19 +8,6 @@
   <body>
     <script>
       const RSS_FEEDS = {
-        bbc: {
-          name: "BBC News",
-          feeds: {
-            general: "https://feeds.bbci.co.uk/news/rss.xml",
-            technology: "https://feeds.bbci.co.uk/news/technology/rss.xml",
-            politics: "https://feeds.bbci.co.uk/news/politics/rss.xml",
-            health: "https://feeds.bbci.co.uk/news/health/rss.xml",
-            science: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
-            business: "https://feeds.bbci.co.uk/news/business/rss.xml",
-            sports: "https://feeds.bbci.co.uk/sport/rss.xml",
-            entertainment: "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
-          },
-        },
         nytimes: {
           name: "The New York Times",
           feeds: {
@@ -32,18 +19,6 @@
             business: "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
             sports: "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml",
             world: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-          },
-        },
-        reuters: {
-          name: "Reuters",
-          feeds: {
-            general: "https://www.reutersagency.com/feed/?best-topics=general-news&post_type=best",
-            technology: "https://www.reutersagency.com/feed/?best-topics=tech&post_type=best",
-            politics: "https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best",
-            health: "https://www.reutersagency.com/feed/?best-topics=health&post_type=best",
-            business: "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
-            sports: "https://www.reutersagency.com/feed/?best-topics=sports&post_type=best",
-            world: "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
           },
         },
       };
@@ -137,28 +112,18 @@
       window["ai_edge_gallery_get_result"] = async (data) => {
         try {
           const jsonData = JSON.parse(data);
-          const sources = jsonData.sources || ["bbc", "nytimes", "reuters"];
+          const sources = ["nytimes"];
           const topic = normalizeTopic(jsonData.topic);
           const limit = jsonData.limit || 5;
 
-          // Validate sources
-          const validSources = sources.filter((s) => RSS_FEEDS[s.toLowerCase()]);
-          if (validSources.length === 0) {
-            return JSON.stringify({
-              error:
-                'No valid sources provided. Valid sources are: "bbc", "nytimes", "reuters".',
-            });
-          }
-
-          // Fetch all feeds in parallel
-          const feedPromises = validSources.map((s) =>
+          const feedPromises = sources.map((s) =>
             fetchFeed(s.toLowerCase(), topic, limit)
           );
           const results = await Promise.all(feedPromises);
 
           // Build text result for the LLM
           let textResult = `News Briefing \u2014 Topic: ${topic === "general" ? "Top Stories" : topic}\n`;
-          textResult += `Sources: ${validSources.join(", ")}\n\n`;
+          textResult += "Source: nytimes\n\n";
 
           for (const feed of results) {
             textResult += `=== ${feed.source} ===\n`;
