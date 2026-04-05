@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>News Briefing</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: #f8f9fa;
+        color: #1a1a1a;
+        padding: 16px;
+        line-height: 1.5;
+      }
+      .header {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .header h1 {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1a1a1a;
+      }
+      .header .topic-badge {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 3px 12px;
+        border-radius: 12px;
+        background: #e3f2fd;
+        color: #1565c0;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .source-section {
+        margin-bottom: 20px;
+      }
+      .source-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        padding-bottom: 6px;
+        border-bottom: 2px solid #e0e0e0;
+      }
+      .source-logo {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 11px;
+        color: white;
+        flex-shrink: 0;
+      }
+      .source-logo.bbc { background: #bb1919; }
+      .source-logo.nytimes { background: #1a1a1a; }
+      .source-logo.reuters { background: #ff6600; }
+      .source-name {
+        font-size: 15px;
+        font-weight: 700;
+        color: #333;
+      }
+      .article {
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+      }
+      .article:last-child {
+        border-bottom: none;
+      }
+      .article-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1a1a1a;
+        text-decoration: none;
+        line-height: 1.4;
+      }
+      .article-title:hover {
+        color: #1565c0;
+      }
+      .article-desc {
+        font-size: 12px;
+        color: #666;
+        margin-top: 4px;
+        line-height: 1.4;
+      }
+      .article-meta {
+        font-size: 11px;
+        color: #999;
+        margin-top: 4px;
+      }
+      .error-msg {
+        padding: 10px;
+        background: #fff3e0;
+        border-radius: 8px;
+        color: #e65100;
+        font-size: 13px;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 40px 16px;
+        color: #999;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>News Briefing</h1>
+      <span class="topic-badge" id="topicBadge">Top Stories</span>
+    </div>
+    <div id="content">
+      <div class="empty-state">Loading news...</div>
+    </div>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const topic = params.get("topic") || "general";
+      const dataStr = params.get("data");
+
+      document.getElementById("topicBadge").textContent =
+        topic === "general" ? "Top Stories" : topic;
+
+      function formatDate(dateStr) {
+        if (!dateStr) return "";
+        try {
+          const d = new Date(dateStr);
+          return d.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        } catch {
+          return dateStr;
+        }
+      }
+
+      function getLogoClass(sourceKey) {
+        if (!sourceKey) return "bbc";
+        const key = sourceKey.toLowerCase();
+        if (key.includes("nytimes") || key.includes("new york")) return "nytimes";
+        if (key.includes("reuters")) return "reuters";
+        return "bbc";
+      }
+
+      function getLogoLetter(sourceKey) {
+        if (!sourceKey) return "B";
+        const key = sourceKey.toLowerCase();
+        if (key.includes("nytimes") || key.includes("new york")) return "N";
+        if (key.includes("reuters")) return "R";
+        return "B";
+      }
+
+      function render(feeds) {
+        const container = document.getElementById("content");
+        if (!feeds || feeds.length === 0) {
+          container.innerHTML =
+            '<div class="empty-state">No news data available.</div>';
+          return;
+        }
+
+        let html = "";
+        for (const feed of feeds) {
+          const logoClass = getLogoClass(feed.sourceKey || feed.source);
+          const logoLetter = getLogoLetter(feed.sourceKey || feed.source);
+
+          html += '<div class="source-section">';
+          html += '<div class="source-header">';
+          html += `<div class="source-logo ${logoClass}">${logoLetter}</div>`;
+          html += `<span class="source-name">${feed.source}</span>`;
+          html += "</div>";
+
+          if (feed.error) {
+            html += `<div class="error-msg">${feed.error}</div>`;
+          } else if (feed.articles) {
+            for (const article of feed.articles) {
+              html += '<div class="article">';
+              if (article.link) {
+                html += `<a class="article-title" href="${article.link}" target="_blank" rel="noopener">${article.title}</a>`;
+              } else {
+                html += `<div class="article-title">${article.title}</div>`;
+              }
+              if (article.description) {
+                html += `<div class="article-desc">${article.description}</div>`;
+              }
+              if (article.pubDate) {
+                html += `<div class="article-meta">${formatDate(article.pubDate)}</div>`;
+              }
+              html += "</div>";
+            }
+          }
+          html += "</div>";
+        }
+        container.innerHTML = html;
+      }
+
+      try {
+        if (dataStr) {
+          const feeds = JSON.parse(decodeURIComponent(dataStr));
+          render(feeds);
+        } else {
+          document.getElementById("content").innerHTML =
+            '<div class="empty-state">No news data provided.</div>';
+        }
+      } catch (e) {
+        document.getElementById("content").innerHTML =
+          '<div class="error-msg">Failed to parse news data: ' +
+          e.message +
+          "</div>";
+      }
+    </script>
+  </body>
+</html>

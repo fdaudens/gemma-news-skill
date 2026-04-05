@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>News Briefing</title>
+  </head>
+  <body>
+    <script>
+      const RSS_FEEDS = {
+        bbc: {
+          name: "BBC News",
+          feeds: {
+            general: "https://feeds.bbci.co.uk/news/rss.xml",
+            technology: "https://feeds.bbci.co.uk/news/technology/rss.xml",
+            politics: "https://feeds.bbci.co.uk/news/politics/rss.xml",
+            health: "https://feeds.bbci.co.uk/news/health/rss.xml",
+            science: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+            business: "https://feeds.bbci.co.uk/news/business/rss.xml",
+            sports: "https://feeds.bbci.co.uk/sport/rss.xml",
+            entertainment: "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
+          },
+        },
+        nytimes: {
+          name: "The New York Times",
+          feeds: {
+            general: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+            technology: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+            politics: "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
+            health: "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml",
+            science: "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+            business: "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+            sports: "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml",
+            world: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+          },
+        },
+        reuters: {
+          name: "Reuters",
+          feeds: {
+            general: "https://www.reutersagency.com/feed/?best-topics=general-news&post_type=best",
+            technology: "https://www.reutersagency.com/feed/?best-topics=tech&post_type=best",
+            politics: "https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best",
+            health: "https://www.reutersagency.com/feed/?best-topics=health&post_type=best",
+            business: "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
+            sports: "https://www.reutersagency.com/feed/?best-topics=sports&post_type=best",
+            world: "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
+          },
+        },
+      };
+
+      // Map common topic aliases to feed keys
+      const TOPIC_ALIASES = {
+        tech: "technology",
+        sport: "sports",
+        sci: "science",
+        finance: "business",
+        money: "business",
+        arts: "entertainment",
+        culture: "entertainment",
+      };
+
+      function normalizeTopic(topic) {
+        if (!topic) return "general";
+        const lower = topic.toLowerCase().trim();
+        return TOPIC_ALIASES[lower] || lower;
+      }
+
+      function getFeedUrl(sourceKey, topic) {
+        const source = RSS_FEEDS[sourceKey];
+        if (!source) return null;
+        return source.feeds[topic] || source.feeds["general"];
+      }
+
+      function parseRSSItems(xmlText, limit) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xmlText, "text/xml");
+        const items = doc.querySelectorAll("item");
+        const results = [];
+
+        for (let i = 0; i < Math.min(items.length, limit); i++) {
+          const item = items[i];
+          const title = item.querySelector("title")?.textContent?.trim() || "";
+          const link = item.querySelector("link")?.textContent?.trim() || "";
+          const description =
+            item.querySelector("description")?.textContent?.trim() || "";
+          const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
+
+          // Strip HTML tags from description
+          const cleanDesc = description.replace(/<[^>]*>/g, "").trim();
+
+          results.push({
+            title,
+            link,
+            description: cleanDesc.length > 200
+              ? cleanDesc.substring(0, 200) + "..."
+              : cleanDesc,
+            pubDate,
+          });
+        }
+        return results;
+      }
+
+      async function fetchFeed(sourceKey, topic, limit) {
+        const url = getFeedUrl(sourceKey, topic);
+        if (!url) {
+          return { source: sourceKey, error: `Unknown source: ${sourceKey}` };
+        }
+
+        const sourceName = RSS_FEEDS[sourceKey].name;
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const xmlText = await response.text();
+          const items = parseRSSItems(xmlText, limit);
+
+          if (items.length === 0) {
+            return {
+              source: sourceName,
+              sourceKey,
+              error: "No articles found in the feed.",
+            };
+          }
+
+          return { source: sourceName, sourceKey, articles: items };
+        } catch (e) {
+          return {
+            source: sourceName,
+            sourceKey,
+            error: `Failed to fetch feed: ${e.message}`,
+          };
+        }
+      }
+
+      window["ai_edge_gallery_get_result"] = async (data) => {
+        try {
+          const jsonData = JSON.parse(data);
+          const sources = jsonData.sources || ["bbc", "nytimes", "reuters"];
+          const topic = normalizeTopic(jsonData.topic);
+          const limit = jsonData.limit || 5;
+
+          // Validate sources
+          const validSources = sources.filter((s) => RSS_FEEDS[s.toLowerCase()]);
+          if (validSources.length === 0) {
+            return JSON.stringify({
+              error:
+                'No valid sources provided. Valid sources are: "bbc", "nytimes", "reuters".',
+            });
+          }
+
+          // Fetch all feeds in parallel
+          const feedPromises = validSources.map((s) =>
+            fetchFeed(s.toLowerCase(), topic, limit)
+          );
+          const results = await Promise.all(feedPromises);
+
+          // Build text result for the LLM
+          let textResult = `News Briefing \u2014 Topic: ${topic === "general" ? "Top Stories" : topic}\n`;
+          textResult += `Sources: ${validSources.join(", ")}\n\n`;
+
+          for (const feed of results) {
+            textResult += `=== ${feed.source} ===\n`;
+            if (feed.error) {
+              textResult += `  Error: ${feed.error}\n\n`;
+              continue;
+            }
+            for (const article of feed.articles) {
+              textResult += `\u2022 ${article.title}\n`;
+              if (article.description) {
+                textResult += `  ${article.description}\n`;
+              }
+              if (article.link) {
+                textResult += `  Link: ${article.link}\n`;
+              }
+              if (article.pubDate) {
+                textResult += `  Published: ${article.pubDate}\n`;
+              }
+              textResult += "\n";
+            }
+          }
+
+          // Build webview data
+          const webviewData = encodeURIComponent(JSON.stringify(results));
+
+          // Cap total output
+          if (textResult.length > 8000) {
+            textResult =
+              textResult.substring(0, 8000) +
+              "\n\n... [TRUNCATED TO SAVE CONTEXT]";
+          }
+
+          return JSON.stringify({
+            result: textResult,
+            webview: {
+              url: `webview.html?data=${webviewData}&topic=${encodeURIComponent(topic)}`,
+              aspectRatio: 1.5,
+            },
+          });
+        } catch (e) {
+          console.error(e);
+          return JSON.stringify({
+            error: `Failed to fetch news: ${e.message}`,
+          });
+        }
+      };
+    </script>
+  </body>
+</html>
