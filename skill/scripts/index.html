@@ -26,7 +26,7 @@
           name: "The Washington Post",
           fetchMode: "rss2json",
           feeds: {
-            general: "https://feeds.washingtonpost.com/rss/national",
+            general: "https://feeds.washingtonpost.com/rss/homepage",
             politics: "https://feeds.washingtonpost.com/rss/politics",
             business: "https://feeds.washingtonpost.com/rss/business",
             world: "https://feeds.washingtonpost.com/rss/world",
@@ -46,6 +46,8 @@
 
       // Map common topic aliases to feed keys
       const TOPIC_ALIASES = {
+        ai: "ai",
+        "artificial intelligence": "ai",
         tech: "technology",
         sport: "sports",
         sci: "science",
@@ -73,13 +75,21 @@
         return source.feeds[topic] || source.feeds["general"];
       }
 
-      function parseRSSItems(xmlText, limit) {
+      function getTopicFeedKey(sourceKey, topic) {
+        const source = RSS_FEEDS[sourceKey];
+        if (!source) return null;
+        if (source.feeds[topic]) return topic;
+        if (topic === "ai" && source.feeds.technology) return "technology";
+        return "general";
+      }
+
+      function parseRSSItems(xmlText) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(xmlText, "text/xml");
         const items = doc.querySelectorAll("item");
         const results = [];
 
-        for (let i = 0; i < Math.min(items.length, limit); i++) {
+        for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const title = item.querySelector("title")?.textContent?.trim() || "";
           const link = item.querySelector("link")?.textContent?.trim() || "";
@@ -102,9 +112,9 @@
         return results;
       }
 
-      function parseJsonFeedItems(jsonData, limit) {
+      function parseJsonFeedItems(jsonData) {
         const items = Array.isArray(jsonData.items) ? jsonData.items : [];
-        return items.slice(0, limit).map((item) => {
+        return items.map((item) => {
           const description = (item.description || item.contentSnippet || "").trim();
           const cleanDesc = description.replace(/<[^>]*>/g, "").trim();
 
@@ -119,17 +129,41 @@
         });
       }
 
+      function escapeRegExp(value) {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+
+      function getTopicPatterns(topic) {
+        if (!topic || topic === "general") return [];
+        if (topic === "ai") {
+          return [/\bai\b/i, /\ba\.i\.\b/i, /artificial intelligence/i];
+        }
+
+        const escaped = escapeRegExp(topic.trim()).replace(/\s+/g, "\\s+");
+        return [new RegExp(`\\b${escaped}\\b`, "i")];
+      }
+
+      function filterArticlesByTopic(articles, topic) {
+        if (!topic || topic === "general") return articles;
+        const patterns = getTopicPatterns(topic);
+        return articles.filter((article) => {
+          const haystack = `${article.title} ${article.description}`;
+          return patterns.some((pattern) => pattern.test(haystack));
+        });
+      }
+
       async function fetchFeed(sourceKey, topic, limit) {
-        const url = getFeedUrl(sourceKey, topic);
+        const feedKey = getTopicFeedKey(sourceKey, topic);
+        const url = getFeedUrl(sourceKey, feedKey);
         if (!url) {
           return { source: sourceKey, error: `Unknown source: ${sourceKey}` };
         }
 
         const sourceName = RSS_FEEDS[sourceKey].name;
+        const needsKeywordFilter = topic !== "general" && feedKey !== topic;
 
         try {
           if (RSS_FEEDS[sourceKey].fetchMode === "rss2json") {
-            // CNN and Washington Post feeds are blocked by browser CORS, so use rss2json.
             const response = await fetch(
               `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`
             );
@@ -142,12 +176,15 @@
               throw new Error(jsonData.message || "Failed to parse feed.");
             }
 
-            const items = parseJsonFeedItems(jsonData, limit);
+            const items = filterArticlesByTopic(parseJsonFeedItems(jsonData), topic)
+              .slice(0, limit);
             if (items.length === 0) {
               return {
                 source: sourceName,
                 sourceKey,
-                error: "No articles found in the feed.",
+                error: needsKeywordFilter
+                  ? `No articles found matching topic: ${topic}.`
+                  : "No articles found in the feed.",
               };
             }
 
@@ -159,13 +196,16 @@
             throw new Error(`HTTP ${response.status}`);
           }
           const xmlText = await response.text();
-          const items = parseRSSItems(xmlText, limit);
+          const items = filterArticlesByTopic(parseRSSItems(xmlText), topic)
+            .slice(0, limit);
 
           if (items.length === 0) {
             return {
               source: sourceName,
               sourceKey,
-              error: "No articles found in the feed.",
+              error: needsKeywordFilter
+                ? `No articles found matching topic: ${topic}.`
+                : "No articles found in the feed.",
             };
           }
 
