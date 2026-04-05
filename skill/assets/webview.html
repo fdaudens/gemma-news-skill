@@ -62,9 +62,8 @@
         color: white;
         flex-shrink: 0;
       }
-      .source-logo.bbc { background: #bb1919; }
       .source-logo.nytimes { background: #1a1a1a; }
-      .source-logo.reuters { background: #ff6600; }
+      .source-logo.washingtonpost { background: #111111; }
       .source-name {
         font-size: 15px;
         font-weight: 700;
@@ -144,19 +143,23 @@
       }
 
       function getLogoClass(sourceKey) {
-        if (!sourceKey) return "bbc";
+        if (!sourceKey) return "nytimes";
         const key = sourceKey.toLowerCase();
         if (key.includes("nytimes") || key.includes("new york")) return "nytimes";
-        if (key.includes("reuters")) return "reuters";
-        return "bbc";
+        if (key.includes("washingtonpost") || key.includes("washington post")) {
+          return "washingtonpost";
+        }
+        return "nytimes";
       }
 
       function getLogoLetter(sourceKey) {
-        if (!sourceKey) return "B";
+        if (!sourceKey) return "N";
         const key = sourceKey.toLowerCase();
         if (key.includes("nytimes") || key.includes("new york")) return "N";
-        if (key.includes("reuters")) return "R";
-        return "B";
+        if (key.includes("washingtonpost") || key.includes("washington post")) {
+          return "W";
+        }
+        return "N";
       }
 
       function render(feeds) {

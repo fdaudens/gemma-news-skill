@@ -10,6 +10,7 @@
       const RSS_FEEDS = {
         nytimes: {
           name: "The New York Times",
+          fetchMode: "rss",
           feeds: {
             general: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
             technology: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
@@ -21,6 +22,26 @@
             world: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
           },
         },
+        washingtonpost: {
+          name: "The Washington Post",
+          fetchMode: "rss2json",
+          feeds: {
+            general: "https://feeds.washingtonpost.com/rss/national",
+            politics: "https://feeds.washingtonpost.com/rss/politics",
+            business: "https://feeds.washingtonpost.com/rss/business",
+            world: "https://feeds.washingtonpost.com/rss/world",
+          },
+        },
+      };
+
+      const SOURCE_ALIASES = {
+        nyt: "nytimes",
+        "new york times": "nytimes",
+        newyorktimes: "nytimes",
+        wapo: "washingtonpost",
+        wp: "washingtonpost",
+        "washington post": "washingtonpost",
+        "washington-post": "washingtonpost",
       };
 
       // Map common topic aliases to feed keys
@@ -38,6 +59,12 @@
         if (!topic) return "general";
         const lower = topic.toLowerCase().trim();
         return TOPIC_ALIASES[lower] || lower;
+      }
+
+      function normalizeSource(source) {
+        if (!source) return null;
+        const lower = source.toLowerCase().trim();
+        return SOURCE_ALIASES[lower] || lower;
       }
 
       function getFeedUrl(sourceKey, topic) {
@@ -75,6 +102,23 @@
         return results;
       }
 
+      function parseJsonFeedItems(jsonData, limit) {
+        const items = Array.isArray(jsonData.items) ? jsonData.items : [];
+        return items.slice(0, limit).map((item) => {
+          const description = (item.description || item.contentSnippet || "").trim();
+          const cleanDesc = description.replace(/<[^>]*>/g, "").trim();
+
+          return {
+            title: (item.title || "").trim(),
+            link: (item.link || "").trim(),
+            description: cleanDesc.length > 200
+              ? cleanDesc.substring(0, 200) + "..."
+              : cleanDesc,
+            pubDate: (item.pubDate || item.published || "").trim(),
+          };
+        });
+      }
+
       async function fetchFeed(sourceKey, topic, limit) {
         const url = getFeedUrl(sourceKey, topic);
         if (!url) {
@@ -84,6 +128,32 @@
         const sourceName = RSS_FEEDS[sourceKey].name;
 
         try {
+          if (RSS_FEEDS[sourceKey].fetchMode === "rss2json") {
+            // CNN and Washington Post feeds are blocked by browser CORS, so use rss2json.
+            const response = await fetch(
+              `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`
+            );
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            const jsonData = await response.json();
+            if (jsonData.status !== "ok") {
+              throw new Error(jsonData.message || "Failed to parse feed.");
+            }
+
+            const items = parseJsonFeedItems(jsonData, limit);
+            if (items.length === 0) {
+              return {
+                source: sourceName,
+                sourceKey,
+                error: "No articles found in the feed.",
+              };
+            }
+
+            return { source: sourceName, sourceKey, articles: items };
+          }
+
           const response = await fetch(url);
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -112,9 +182,23 @@
       window["ai_edge_gallery_get_result"] = async (data) => {
         try {
           const jsonData = JSON.parse(data);
-          const sources = ["nytimes"];
+          const requestedSources = Array.isArray(jsonData.sources)
+            ? jsonData.sources
+            : ["nytimes", "washingtonpost"];
+          const sources = requestedSources
+            .map(normalizeSource)
+            .filter((source, index, list) =>
+              source && RSS_FEEDS[source] && list.indexOf(source) === index
+            );
           const topic = normalizeTopic(jsonData.topic);
           const limit = jsonData.limit || 5;
+
+          if (sources.length === 0) {
+            return JSON.stringify({
+              error:
+                'No valid sources provided. Valid sources are: "nytimes", "washingtonpost".',
+            });
+          }
 
           const feedPromises = sources.map((s) =>
             fetchFeed(s.toLowerCase(), topic, limit)
@@ -123,7 +207,7 @@
 
           // Build text result for the LLM
           let textResult = `News Briefing \u2014 Topic: ${topic === "general" ? "Top Stories" : topic}\n`;
-          textResult += "Source: nytimes\n\n";
+          textResult += `Sources: ${sources.join(", ")}\n\n`;
 
           for (const feed of results) {
             textResult += `=== ${feed.source} ===\n`;
